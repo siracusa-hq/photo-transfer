@@ -9,21 +9,42 @@
     body {
       font-family: sans-serif;
       margin: 0;
-      padding: 20px;
+      padding: 0;
       background-color: #f2f2f2;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
       text-align: center;
+      user-select: none;
     }
-    header { margin-bottom: 20px; }
-    button {
-      padding: 10px 20px;
-      margin: 10px;
-      font-size: 16px;
+    h1 {
+      margin-bottom: 20px;
+    }
+    #touchArea {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+      color: #317EFB;
     }
     #preview {
       max-width: 90%;
       max-height: 400px;
-      margin: 20px auto;
+      margin-top: 20px;
       display: none;
+    }
+    #savePrompt {
+      display: none;
+      margin-top: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      font-size: 16px;
     }
   </style>
 </head>
@@ -32,47 +53,45 @@
     <h1>Photo Uploader PWA</h1>
   </header>
 
+  <!-- 画面全体がタッチ可能な領域 -->
+  <div id="touchArea">画面をタッチして撮影</div>
+
   <!-- 非表示のファイル入力（カメラ起動） -->
   <input type="file" accept="image/*" capture id="fileInput" style="display:none;">
   
-  <!-- 写真を撮るボタン -->
-  <button id="takePhotoBtn">写真を撮る</button>
-
-  <!-- プレビュー表示 -->
+  <!-- 撮影した写真のプレビュー -->
   <img id="preview" src="" alt="Preview">
 
-  <!-- 初回のみ表示する「写真を保存」ボタン（Web Share API利用） -->
-  <div id="savePrompt" style="display:none; margin-top:20px;">
+  <!-- 初回のみ表示する「写真を保存」促し -->
+  <div id="savePrompt">
     <p>撮影した写真をiPhoneのカメラロールに保存しますか？</p>
     <button id="saveBtn">保存する</button>
   </div>
 
   <script>
-    // 要素の取得
     const fileInput = document.getElementById('fileInput');
-    const takePhotoBtn = document.getElementById('takePhotoBtn');
+    const touchArea = document.getElementById('touchArea');
     const previewImg = document.getElementById('preview');
     const savePrompt = document.getElementById('savePrompt');
     const saveBtn = document.getElementById('saveBtn');
 
-    // アップロードキュー
     let uploadQueue = [];
-
-    // 初回保存促し用フラグ（LocalStorageに保存）
     const SAVE_PROMPT_KEY = 'savePromptShown';
     let savePromptShown = localStorage.getItem(SAVE_PROMPT_KEY);
 
-    // 「写真を撮る」ボタン押下でファイル入力を起動
-    takePhotoBtn.addEventListener('click', () => {
-      fileInput.value = ''; // 前回の選択リセット
+    // 画面全体がタッチされたときにカメラ起動
+    document.body.addEventListener('click', (e) => {
+      // タッチエリア以外（例えばモーダルや保存ボタン）でのクリックは除外
+      if (e.target === saveBtn) return;
+      fileInput.value = '';
       fileInput.click();
     });
 
-    // ファイルが選択されたとき
+    // ファイル入力の変更イベント
     fileInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       if (file) {
-        // 表示用プレビュー
+        // プレビュー表示
         const reader = new FileReader();
         reader.onload = (e) => {
           previewImg.src = e.target.result;
@@ -84,23 +103,20 @@
         navigator.geolocation.getCurrentPosition(
           position => {
             const { latitude, longitude, accuracy } = position.coords;
-            // 作成するアップロードアイテム
             const uploadItem = {
-              file: file, // ファイルそのまま（ファイル名は後側でサーバー側でリネーム）
+              file: file,
               gps: {
                 latitude: latitude,
                 longitude: longitude,
                 accuracy: accuracy
               },
-              timestamp: new Date().toISOString() // サーバー側でData-YYYYMMDD-HHMMSSに変換する想定
+              timestamp: new Date().toISOString()
             };
-            // キューに追加し、処理開始
             uploadQueue.push(uploadItem);
             processUploadQueue();
           },
           error => {
-            console.error('位置情報の取得エラー:', error);
-            // 位置情報が取れなければ、空の値でも送信（サーバー側で処理）
+            console.error('位置情報取得エラー:', error);
             const uploadItem = {
               file: file,
               gps: null,
@@ -112,44 +128,41 @@
           { enableHighAccuracy: true }
         );
 
-        // 初回のみ「写真を保存」促し（Web Share API利用） ※対応環境なら
+        // 初回のみ写真保存の促し（Web Share API利用） ※対応環境なら
         if (!savePromptShown && navigator.canShare && file) {
           savePrompt.style.display = 'block';
         }
       }
     });
 
-    // 「保存する」ボタンの動作（Web Share API利用）
+    // 「保存する」ボタン（Web Share API利用）
     saveBtn.addEventListener('click', async () => {
       try {
         if (navigator.canShare && navigator.canShare({ files: [fileInput.files[0]] })) {
-          await navigator.share({ files: [fileInput.files[0]], title: '写真を保存', text: 'この写真をカメラロールに保存します。' });
+          await navigator.share({ files: [fileInput.files[0]], title: '写真保存', text: 'この写真をカメラロールに保存します。' });
           alert('写真の保存が完了しました。');
         } else {
           alert('お使いの環境では自動保存がサポートされていません。');
         }
       } catch (error) {
-        console.error('写真保存エラー:', error);
-        alert('写真保存中にエラーが発生しました。');
+        console.error('保存エラー:', error);
+        alert('保存中にエラーが発生しました。');
       }
       savePrompt.style.display = 'none';
       localStorage.setItem(SAVE_PROMPT_KEY, 'true');
       savePromptShown = true;
     });
 
-    // アップロードキューを非同期に処理する関数
+    // 非同期アップロードキュー処理
     async function processUploadQueue() {
       if (uploadQueue.length === 0) return;
-      // すぐに次の処理を始めるため、shift()で先頭アイテムを取得
       const item = uploadQueue.shift();
       try {
-        // FormDataにファイルとGPS情報、タイムスタンプを追加
         const formData = new FormData();
         formData.append('image', item.file);
         formData.append('gps', JSON.stringify(item.gps));
         formData.append('timestamp', item.timestamp);
 
-        // 非同期にfetch実行（アップロード中もUI操作は可能）
         const response = await fetch('https://webhook.site/0cf42153-77ac-414a-a64e-a5f6d07fca20', {
           method: 'POST',
           body: formData
@@ -159,22 +172,20 @@
           console.log('アップロード成功:', await response.text());
         } else {
           console.error('アップロード失敗:', response.statusText);
-          // 失敗時は、必要に応じてリトライ用にキューに戻す処理も検討可
         }
       } catch (error) {
         console.error('アップロードエラー:', error);
       } finally {
-        // 次のアップロードを処理（キューがある場合）
         processUploadQueue();
       }
     }
 
-    // Service Workerの登録（PWAとしてオフライン対応）
+    // Service Worker登録（PWAオフライン対応）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js')
           .then(registration => {
-            console.log('Service Worker registered with scope:', registration.scope);
+            console.log('Service Worker registered:', registration.scope);
           })
           .catch(error => {
             console.error('Service Worker registration failed:', error);
