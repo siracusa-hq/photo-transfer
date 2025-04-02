@@ -163,7 +163,7 @@
         formData.append('gps', JSON.stringify(item.gps));
         formData.append('timestamp', item.timestamp);
 
-        const response = await fetch('https://webhook.site/0cf42153-77ac-414a-a64e-a5f6d07fca20', {
+        const response = await fetch('https://okada-photo-uploader-856255180445.asia-northeast1.run.app', {
           method: 'POST',
           body: formData
         });
