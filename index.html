@@ -118,6 +118,7 @@
 
     // 画面タッチでファイル入力起動 (カメラ)
     document.body.addEventListener('click', (e) => {
+      // ボタンをクリックした場合は除外
       if (e.target === saveBtn || e.target === errorOkBtn) return;
       fileInput.value = '';
       fileInput.click();
@@ -127,6 +128,8 @@
     fileInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       if (file) {
+        console.log('Selected file:', file.name, file.type);
+
         // プレビュー表示
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -190,8 +193,8 @@
     });
 
     // エラーモーダルを表示する関数
-    function showErrorModal() {
-      // モーダルを表示 (既に表示中の場合でも複数個同時に出す想定)
+    function showErrorModal(message) {
+      errorMessage.textContent = message;
       errorModal.style.display = 'block';
     }
     // OKボタンが押されたとき
@@ -209,24 +212,29 @@
         formData.append('gps', JSON.stringify(item.gps));
         formData.append('timestamp', item.timestamp);
 
-        const response = await fetch('https://okada-photo-uploader-856255180445.asia-northeast1.run.app', {
+        // Cloud Runのエンドポイント
+        // CORS対策を行ったサーバー側URLを指定
+        const endpointUrl = 'https://okada-photo-uploader-856255180445.asia-northeast1.run.app';
+
+        // fetch実行
+        const response = await fetch(endpointUrl, {
           method: 'POST',
           body: formData
         });
 
-        if (response.ok) {
-          console.log('アップロード成功:', await response.text());
+        console.log('fetch status:', response.status);
+        const responseText = await response.text();
+        console.log('fetch response text:', responseText);
+
+        if (!response.ok) {
+          console.error('アップロード失敗:', response.status, responseText);
+          showErrorModal("送信が失敗しました。電波状況を確認してください。\n何度も失敗する場合は、カメラアプリで撮影を行ってください。");
         } else {
-          console.error('アップロード失敗:', response.statusText);
-          // 失敗時: ポップアップ + コンソールログ
-          errorMessage.textContent = "送信が失敗しました。電波状況を確認してください。\n何度も失敗する場合は、カメラアプリで撮影を行ってください。";
-          showErrorModal();
+          console.log('アップロード成功:', responseText);
         }
       } catch (error) {
         console.error('アップロードエラー:', error);
-        // 失敗時: ポップアップ + コンソールログ
-        errorMessage.textContent = "送信が失敗しました。電波状況を確認してください。\n何度も失敗する場合は、カメラアプリで撮影を行ってください。";
-        showErrorModal();
+        showErrorModal("送信が失敗しました。電波状況を確認してください。\n何度も失敗する場合は、カメラアプリで撮影を行ってください。");
       } finally {
         // 次のアップロードを続行 (失敗してもキューは継続)
         processUploadQueue();
