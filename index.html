@@ -46,6 +46,28 @@
       margin: 10px;
       font-size: 16px;
     }
+
+    /* エラーモーダルのスタイル */
+    #errorModal {
+      display: none; /* 初期は非表示 */
+      position: fixed;
+      z-index: 999; 
+      left: 0; 
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto; 
+      background-color: rgba(0,0,0,0.4);
+    }
+    #errorModalContent {
+      background-color: #fff;
+      margin: 20% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 80%;
+      max-width: 300px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -68,6 +90,14 @@
     <button id="saveBtn">保存する</button>
   </div>
 
+  <!-- エラーモーダル -->
+  <div id="errorModal">
+    <div id="errorModalContent">
+      <p id="errorMessage"></p>
+      <button id="errorOkBtn">OK</button>
+    </div>
+  </div>
+
   <script>
     const fileInput = document.getElementById('fileInput');
     const touchArea = document.getElementById('touchArea');
@@ -75,19 +105,25 @@
     const savePrompt = document.getElementById('savePrompt');
     const saveBtn = document.getElementById('saveBtn');
 
+    // エラーモーダル関連
+    const errorModal = document.getElementById('errorModal');
+    const errorModalContent = document.getElementById('errorModalContent');
+    const errorMessage = document.getElementById('errorMessage');
+    const errorOkBtn = document.getElementById('errorOkBtn');
+
+    // アップロード待ちのキュー
     let uploadQueue = [];
     const SAVE_PROMPT_KEY = 'savePromptShown';
     let savePromptShown = localStorage.getItem(SAVE_PROMPT_KEY);
 
-    // 画面全体がタッチされたときにカメラ起動
+    // 画面タッチでファイル入力起動 (カメラ)
     document.body.addEventListener('click', (e) => {
-      // タッチエリア以外（例えばモーダルや保存ボタン）でのクリックは除外
-      if (e.target === saveBtn) return;
+      if (e.target === saveBtn || e.target === errorOkBtn) return;
       fileInput.value = '';
       fileInput.click();
     });
 
-    // ファイル入力の変更イベント
+    // ファイルが選択された時
     fileInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       if (file) {
@@ -99,7 +135,7 @@
         };
         reader.readAsDataURL(file);
 
-        // 位置情報の取得（高精度）
+        // 位置情報を取得
         navigator.geolocation.getCurrentPosition(
           position => {
             const { latitude, longitude, accuracy } = position.coords;
@@ -128,14 +164,14 @@
           { enableHighAccuracy: true }
         );
 
-        // 初回のみ写真保存の促し（Web Share API利用） ※対応環境なら
+        // 初回のみ写真保存を促す
         if (!savePromptShown && navigator.canShare && file) {
           savePrompt.style.display = 'block';
         }
       }
     });
 
-    // 「保存する」ボタン（Web Share API利用）
+    // 「保存する」ボタン
     saveBtn.addEventListener('click', async () => {
       try {
         if (navigator.canShare && navigator.canShare({ files: [fileInput.files[0]] })) {
@@ -151,6 +187,16 @@
       savePrompt.style.display = 'none';
       localStorage.setItem(SAVE_PROMPT_KEY, 'true');
       savePromptShown = true;
+    });
+
+    // エラーモーダルを表示する関数
+    function showErrorModal() {
+      // モーダルを表示 (既に表示中の場合でも複数個同時に出す想定)
+      errorModal.style.display = 'block';
+    }
+    // OKボタンが押されたとき
+    errorOkBtn.addEventListener('click', () => {
+      errorModal.style.display = 'none';
     });
 
     // 非同期アップロードキュー処理
@@ -172,10 +218,17 @@
           console.log('アップロード成功:', await response.text());
         } else {
           console.error('アップロード失敗:', response.statusText);
+          // 失敗時: ポップアップ + コンソールログ
+          errorMessage.textContent = "送信が失敗しました。電波状況を確認してください。\n何度も失敗する場合は、カメラアプリで撮影を行ってください。";
+          showErrorModal();
         }
       } catch (error) {
         console.error('アップロードエラー:', error);
+        // 失敗時: ポップアップ + コンソールログ
+        errorMessage.textContent = "送信が失敗しました。電波状況を確認してください。\n何度も失敗する場合は、カメラアプリで撮影を行ってください。";
+        showErrorModal();
       } finally {
+        // 次のアップロードを続行 (失敗してもキューは継続)
         processUploadQueue();
       }
     }
