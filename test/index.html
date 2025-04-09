@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo / Video Uploader PWA</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body{
+      font-family:sans-serif;margin:0;padding:0;background:#f2f2f2;
+      height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;user-select:none;
+    }
+    h1{margin-bottom:16px}
+    .btn{
+      width:260px;padding:20px;margin:10px;font-size:20px;border:none;border-radius:8px;
+      color:#fff;cursor:pointer
+    }
+    #photoBtn{background:#317EFB}
+    #videoBtn{background:#2ecc71}
+    #preview{max-width:90%;max-height:300px;margin-top:16px;display:none}
+    /* エラーモーダル */
+    #errorModal{display:none;position:fixed;z-index:999;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.4)}
+    #errorModalContent{background:#fff;margin:25% auto;padding:20px;border:1px solid #888;width:80%;max-width:320px;text-align:center}
+    button{font-size:16px}
+  </style>
+</head>
+<body>
+  <h1>Uploader PWA</h1>
+
+  <!-- 撮影ボタン -->
+  <button id="photoBtn" class="btn">📷 写真を撮影</button>
+  <button id="videoBtn" class="btn">🎥 動画を撮影</button>
+
+  <!-- 隠しファイル入力 -->
+  <input type="file" accept="image/*" capture id="photoInput" style="display:none;">
+  <input type="file" accept="video/*" capture id="videoInput" style="display:none;">
+
+  <!-- プレビュー（画像のみ） -->
+  <img id="preview" alt="preview">
+
+  <!-- 初回だけ保存促し -->
+  <div id="savePrompt" style="display:none">
+    <p>撮影した写真をカメラロールに保存しますか？</p>
+    <button id="saveBtn">保存する</button>
+  </div>
+
+  <!-- エラーモーダル -->
+  <div id="errorModal">
+    <div id="errorModalContent">
+      <p id="errorMessage"></p>
+      <button id="errorOkBtn">OK</button>
+    </div>
+  </div>
+
+<script>
+const photoBtn   = document.getElementById('photoBtn');
+const videoBtn   = document.getElementById('videoBtn');
+const photoInput = document.getElementById('photoInput');
+const videoInput = document.getElementById('videoInput');
+const previewImg = document.getElementById('preview');
+const savePrompt = document.getElementById('savePrompt');
+const saveBtn    = document.getElementById('saveBtn');
+const errorModal = document.getElementById('errorModal');
+const errorMsg   = document.getElementById('errorMessage');
+const errorOkBtn = document.getElementById('errorOkBtn');
+
+const SAVE_PROMPT_KEY='savePromptShown';
+let savePromptShown=localStorage.getItem(SAVE_PROMPT_KEY);
+
+// アップロード待ちキュー
+let uploadQueue=[];
+
+// ボタン→input 起動
+photoBtn.addEventListener('click',()=>{ photoInput.value=''; photoInput.click(); });
+videoBtn.addEventListener('click',()=>{ videoInput.value=''; videoInput.click(); });
+
+// 写真選択
+photoInput.addEventListener('change',e=>handleFile(e.target.files[0],'PHOTO'));
+// 動画選択
+videoInput.addEventListener('change',e=>handleFile(e.target.files[0],'VIDEO'));
+
+function handleFile(file,type){
+  if(!file)return;
+  console.log('Selected',type,file.name,file.type);
+
+  // 画像プレビューのみ
+  if(type==='PHOTO'){
+    const reader=new FileReader();
+    reader.onload=e=>{ previewImg.src=e.target.result; previewImg.style.display='block'; };
+    reader.readAsDataURL(file);
+  }else{
+    previewImg.style.display='none';
+  }
+
+  navigator.geolocation.getCurrentPosition(pos=>{
+      enqueue(file,type,pos.coords);
+    },err=>{
+      console.error('GPS error',err);
+      enqueue(file,type,null);
+    },{enableHighAccuracy:true});
+}
+
+function enqueue(file,type,coords){
+  uploadQueue.push({
+    file,
+    type,
+    gps: coords?{latitude:coords.latitude,longitude:coords.longitude,accuracy:coords.accuracy}:null,
+    timestamp:new Date().toISOString()
+  });
+  processQueue();
+  // 初回のみ保存促し（写真時のみ）
+  if(type==='PHOTO' && !savePromptShown && navigator.canShare){
+    savePrompt.style.display='block';
+  }
+}
+
+// 写真保存促し
+saveBtn.onclick=async()=>{
+  try{
+    if(navigator.canShare&&navigator.canShare({files:[photoInput.files[0]]})){
+      await navigator.share({files:[photoInput.files[0]],title:'写真保存'});
+      alert('保存しました');
+    }
+  }catch(e){console.error(e);}
+  savePrompt.style.display='none';
+  localStorage.setItem(SAVE_PROMPT_KEY,'true');
+  savePromptShown=true;
+};
+
+// エラーモーダル
+function showErr(msg){ errorMsg.textContent=msg; errorModal.style.display='block'; }
+errorOkBtn.onclick=()=>{ errorModal.style.display='none'; };
+
+// アップロード処理
+async function processQueue(){
+  if(uploadQueue.processing || uploadQueue.length===0)return;
+  uploadQueue.processing=true;
+  const {file,type,gps,timestamp}=uploadQueue.shift();
+
+  const form=new FormData();
+  form.append('image',file);          // サーバ側は image/video 両対応で受理
+  form.append('gps',JSON.stringify(gps));
+  form.append('timestamp',timestamp);
+
+  try{
+    const res=await fetch('https://okada-photo-uploader-856255180445.asia-northeast1.run.app',{
+      method:'POST',body:form
+    });
+    const txt=await res.text();
+    console.log('status',res.status,txt);
+    if(!res.ok){
+      throw new Error('HTTP '+res.status);
+    }
+  }catch(err){
+    console.error('upload error',err);
+    showErr("送信が失敗しました。電波状況を確認してください。\n何度も失敗する場合は、カメラアプリで撮影を行ってください。");
+  }finally{
+    uploadQueue.processing=false;
+    if(uploadQueue.length)processQueue();
+  }
+}
+
+// SW 登録
+if('serviceWorker'in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('service-worker.js'));
+}
+</script>
+</body>
+</html>
